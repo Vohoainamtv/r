@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Quét Link VOHOAINAM</title>
-<link rel="dns-prefetch" href="https://script.google.com">
-<link rel="preconnect" href="https://script.google.com" crossorigin>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;width:100%;min-height:100%;background:#050505;color:#fff;
@@ -110,6 +108,11 @@ Vui lòng liên hệ ctv để gia hạn.
 <div id="blockedUntil" class="expiry"></div>
 </div>
 
+<div id="badlinkBox" class="hidden">
+<div class="status error">✕ Link không hợp lệ</div>
+<div class="note">Link bị sai hoặc không đúng mã hóa.<br>Vui lòng lấy link mới từ bot.</div>
+</div>
+
 <div id="errorBox" class="hidden">
 <div id="errorTitle" class="status error">Không thể kiểm tra thiết bị</div>
 <div id="errorNote" class="note">Vui lòng kiểm tra kết nối mạng hoặc quyền truy cập.</div>
@@ -119,15 +122,15 @@ Vui lòng liên hệ ctv để gia hạn.
 </div>
 
 <script>
-// ===== URL APPS SCRIPT (Web app) =====
-const API_URL = "https://script.google.com/macros/s/AKfycbwgcu-Vyjwmv9zD7mxq-fuLmI1EAZBDcKPR9B9l41O3zvnIvrMwuycgvZrlsNPJNIbb/exec";
+// ===== URL CLOUDFLARE WORKER =====
+const API_URL = "https://quetlink.TENBAN.workers.dev";
 
-const SHOW_APPROVED_MS = 400;
-const API_TIMEOUT_MS = 10000;
+const SHOW_APPROVED_MS = 150;
+const API_TIMEOUT_MS = 8000;
 
 let approvedUntilMs = null;   // null = vô hạn
 let isApproved = false;
-let currentRoomId = "";       // do máy chủ giải mã và trả về, chỉ giữ trong bộ nhớ
+let currentRoomId = "";       // do Worker giải mã và trả về, chỉ giữ trong bộ nhớ
 
 function generateDeviceId(){
     const uuid = crypto.randomUUID();
@@ -144,7 +147,6 @@ function getDeviceId(){
     }
     return id;
 }
-// r = room id mã hóa AES, gửi nguyên cho máy chủ giải mã
 function getEncryptedR(){
     const params = new URLSearchParams(window.location.search);
     return (params.get("r") || "").trim();
@@ -166,7 +168,7 @@ function formatDate(date){
     return get("hour") + ":" + get("minute") + " " + get("day") + "/" + get("month") + "/" + get("year");
 }
 function hideAll(){
-    ["loadingBox","deniedBox","approvedBox","expiredBox","blockedBox","errorBox"]
+    ["loadingBox","deniedBox","approvedBox","expiredBox","blockedBox","badlinkBox","errorBox"]
         .forEach(function(id){ document.getElementById(id).classList.add("hidden"); });
 }
 function showDenied(){
@@ -201,6 +203,12 @@ function showBlocked(untilMs){
         ? "Mở lại sau: <strong>" + formatDate(new Date(untilMs)) + "</strong>" : "";
     document.getElementById("blockedBox").classList.remove("hidden");
 }
+function showBadLink(){
+    isApproved = false;
+    currentRoomId = "";
+    hideAll();
+    document.getElementById("badlinkBox").classList.remove("hidden");
+}
 function showError(title, note){
     isApproved = false;
     hideAll();
@@ -234,13 +242,12 @@ function showApprovedThenOpen(note, expiry){
     setTimeout(openTikTok, SHOW_APPROVED_MS);
 }
 
-// ===== HỎI MÁY CHỦ =====
 async function askServer(deviceId, r){
     const ctrl = new AbortController();
     const timer = setTimeout(function(){ ctrl.abort(); }, API_TIMEOUT_MS);
     try{
-        let url = API_URL + "?d=" + encodeURIComponent(deviceId) + "&t=" + Date.now();
-        if(r) url += "&r=" + encodeURIComponent(r);
+        const url = API_URL + "/?d=" + encodeURIComponent(deviceId) +
+                    "&r=" + encodeURIComponent(r) + "&t=" + Date.now();
         const res = await fetch(url, { method:"GET", cache:"no-store", signal: ctrl.signal });
         if(!res.ok) throw new Error("HTTP " + res.status);
         return await res.json();
@@ -248,41 +255,38 @@ async function askServer(deviceId, r){
         clearTimeout(timer);
     }
 }
-async function checkFromNetwork(deviceId){
-    const data = await askServer(deviceId, getEncryptedR());
+async function checkFromNetwork(deviceId, r){
+    const data = await askServer(deviceId, r);
     const note = data.note || "";
 
-    if(data.status === "denied"){ showDenied(); return; }
+    if(data.status === "badlink"){ showBadLink(); return; }
     if(data.status === "blocked"){ showBlocked(data.untilMs); return; }
-    if(data.status === "badlink"){
-        showError("Link không hợp lệ", "Link bị sai hoặc hết hiệu lực. Vui lòng lấy link mới.");
-        return;
-    }
+    if(data.status === "denied"){ showDenied(); return; }
     if(data.status === "approved" || data.status === "expired"){
         const expiry = data.expiryMs ? new Date(data.expiryMs) : null;
-        // Mốc lớn nhất giữa giờ máy chủ và giờ máy -> chỉnh lùi đồng hồ vô ích
+        // Lấy mốc lớn nhất giữa giờ máy chủ và giờ máy -> chỉnh lùi đồng hồ vô ích
         const nowMs = Math.max(Date.now(), +data.nowMs || 0);
         const expired = data.status === "expired" || (expiry && nowMs >= expiry.getTime());
         if(expired){ showExpired(note, expiry); return; }
-        if(!data.roomId){
-            showError("Link không hợp lệ", "Link bị sai hoặc hết hiệu lực. Vui lòng lấy link mới.");
-            return;
-        }
+        if(!data.roomId){ showBadLink(); return; }
         currentRoomId = String(data.roomId);
         showApprovedThenOpen(note, expiry);
         return;
     }
-    showError("Không thể kiểm tra thiết bị", data.msg ? ("Lỗi: " + data.msg) : "");
+    showError();
 }
 function checkDevice(){
     const deviceId = getDeviceId();
     document.getElementById("deviceCode").textContent = deviceId;
     document.getElementById("deviceCodeExpired").textContent = deviceId;
     document.getElementById("deviceCodeApproved").textContent = "(" + deviceId.substring(0,4) + ")";
+
+    // Không có tham số r thì báo sai ngay, không cần hỏi máy chủ
+    const r = getEncryptedR();
+    if(!r){ showBadLink(); return; }
+
     // Lỗi mạng -> KHÔNG cho vào
-    checkFromNetwork(deviceId).catch(function(e){
-        showError("Không thể kiểm tra thiết bị", "Lỗi kết nối: " + (e && e.message ? e.message : ""));
-    });
+    checkFromNetwork(deviceId, r).catch(function(){ showError(); });
 }
 async function copyDevice(){
     const id = getDeviceId();
