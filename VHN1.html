@@ -4,10 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Quét Link VOHOAINAM</title>
-<link rel="dns-prefetch" href="https://docs.google.com">
-<link rel="dns-prefetch" href="https://utctime.app">
-<link rel="dns-prefetch" href="https://worldtime.timezone.io">
-<link rel="preconnect" href="https://docs.google.com" crossorigin>
+<link rel="dns-prefetch" href="https://script.google.com">
+<link rel="preconnect" href="https://script.google.com" crossorigin>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -113,12 +111,18 @@ Vui lòng liên hệ ctv  để gia hạn.
 </div>
 </div>
 <script>
-const SHEET_ID = "1-e7G6GYM9eJSKOF1AOdATM4H2X-7erAaqj0VJUCD6T8";
-const SHEET_NAME = "key2";
-const CACHE_KEY = "tnam_auth_cache_v3";
+// ===== URL APPS SCRIPT (Web app) =====
+const API_URL = "https://script.google.com/macros/s/AKfycbwW7UiNjh29WsXs0Sa225vXc1IajocS9hMKSy8dVKa1Fz-hwxym-lvaqooFy9m-KmcH/exec";
+
+const CACHE_KEY = "tnam_auth_cache_v5";
 const CACHE_TTL_MS = 3000;
 const SHOW_APPROVED_MS = 400;
-const RECHECK_DELAY_MS = 250;
+const RECHECK_DELAY_MS = 300;
+const API_TIMEOUT_MS = 8000;
+
+// Hạn của lần duyệt hiện tại (ms). null = vô hạn.
+let approvedUntilMs = null;
+let isApproved = false;
 
 // ===== AES KEY (giống bot) =====
 const AES_KEY_HEX = "c2272f29065fcfab89e4d94f2d7d89f3e9ba401a1ea05fd2480aa9d999b41144";
@@ -178,126 +182,29 @@ function getRoomId(){
     }
     return getRoomIdFromUrl(getTikTokUrl());
 }
+
+// ===== CACHE (chỉ dùng Date.now) =====
 function readCache(deviceId){
     try{
         const raw = localStorage.getItem(CACHE_KEY);
         if(!raw) return null;
         const data = JSON.parse(raw);
         if(!data || data.deviceId !== deviceId) return null;
-        if(typeof data.perfAt === "number"){
-            if(performance.now() - data.perfAt > CACHE_TTL_MS) return null;
-        }else if(Date.now() - (data.checkedAt || 0) > CACHE_TTL_MS){
-            return null;
-        }
+        const age = Date.now() - (data.checkedAt || 0);
+        if(age < 0 || age > CACHE_TTL_MS) return null;
         return data;
     }catch(e){ return null; }
 }
 function writeCache(payload){
     try{
-        payload.perfAt = performance.now();
         payload.checkedAt = Date.now();
         localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
     }catch(e){}
 }
-async function getVietnamNowMs(){
-    try{
-        const t0 = Date.now();
-        const res = await fetch(
-            "https://utctime.app/api/now/Asia/Ho_Chi_Minh?t=" + Date.now(),
-            { method:"GET", cache:"no-store" }
-        );
-        if(!res.ok) throw new Error();
-        const data = await res.json();
-        const t1 = Date.now();
-        const rtt = t1 - t0;
-        return (data.unix_ms || data.unix * 1000) + rtt / 2;
-    }catch(e1){
-        try{
-            const t0 = Date.now();
-            const res = await fetch(
-                "https://worldtime.timezone.io/api/timezone/Asia/Ho_Chi_Minh?t=" + Date.now(),
-                { method:"GET", cache:"no-store" }
-            );
-            if(!res.ok) throw new Error();
-            const data = await res.json();
-            const t1 = Date.now();
-            const rtt = t1 - t0;
-            return data.unixtime * 1000 + rtt / 2;
-        }catch(e2){
-            return Date.now();
-        }
-    }
+function clearCache(){
+    try{ localStorage.removeItem(CACHE_KEY); }catch(e){}
 }
-function parseCSVLine(line){
-    const result = [];
-    let current = "", inQuotes = false;
-    for(let i = 0; i < line.length; i++){
-        const c = line[i];
-        if(c === '"'){
-            if(inQuotes && line[i+1] === '"'){ current += '"'; i++; }
-            else inQuotes = !inQuotes;
-        }else if(c === ',' && !inQuotes){
-            result.push(current); current = "";
-        }else current += c;
-    }
-    result.push(current);
-    return result;
-}
-async function readGoogleSheet(){
-    const url = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
-        "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(SHEET_NAME) + "&t=" + Date.now();
-    const res = await fetch(url, { method:"GET", cache:"no-store" });
-    if(!res.ok) throw new Error("sheet");
-    const text = await res.text();
-    const lines = text.trim().split(/\r?\n/);
-    const devices = [];
-    for(let i = 1; i < lines.length; i++){
-        const cols = parseCSVLine(lines[i]);
-        const device = (cols[0] || "").trim();
-        if(!device) continue;
 
-        // Đọc đầy đủ 4 cột: A=device, B=note, C=expiry, D=id
-        // Cột D được đọc nhưng KHÔNG bao giờ hiển thị trên web
-        devices.push({
-            device: device,
-            note: (cols[1] || "").trim(),
-            expiry: (cols[2] || "").trim(),
-            id: (cols[3] || "").trim()          // <-- cột D (id) - chỉ đọc, không hiện
-        });
-    }
-    return devices;
-}
-function parseExpiry(value){
-    if(!value) return null;
-    const text = String(value).trim();
-    if(!text) return null;
-    function createVNDate(y, m, d, h, mi, s){
-        h = h || 0; mi = mi || 0; s = s || 0;
-        return new Date(Date.UTC(y, m, d, h - 7, mi, s, 0));
-    }
-    let m = text.match(/^Date\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+))?(?:,\s*(\d+))?(?:,\s*(\d+))?/);
-    if(m) return createVNDate(+m[1], +m[2], +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
-    m = text.match(/^(\d{1,2}):(\d{2})\s+(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if(m){
-        const h = +m[1], mi = +m[2], d = +m[3], mo = +m[4], y = +m[5];
-        if(h>23||mi>59||mo<1||mo>12||d<1||d>31) return null;
-        return createVNDate(y, mo-1, d, h, mi);
-    }
-    m = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
-    if(m){
-        const d = +m[1], mo = +m[2], y = +m[3], h = +m[4], mi = +m[5];
-        if(h>23||mi>59||mo<1||mo>12||d<1||d>31) return null;
-        return createVNDate(y, mo-1, d, h, mi);
-    }
-    m = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if(m){
-        const d = +m[1], mo = +m[2], y = +m[3];
-        if(mo<1||mo>12||d<1||d>31) return null;
-        return createVNDate(y, mo-1, d, 23, 59, 59);
-    }
-    const native = new Date(text);
-    return isNaN(native.getTime()) ? null : native;
-}
 function formatDate(date){
     if(!date) return "";
     const opts = {
@@ -318,10 +225,13 @@ function hideAll(){
         .forEach(function(id){ document.getElementById(id).classList.add("hidden"); });
 }
 function showDenied(){
+    isApproved = false;
     hideAll();
     document.getElementById("deniedBox").classList.remove("hidden");
 }
 function showApproved(note, expiry){
+    isApproved = true;
+    approvedUntilMs = expiry ? expiry.getTime() : null;
     hideAll();
     document.getElementById("approvedBox").classList.remove("hidden");
     document.getElementById("approvedNote").textContent = note ? "Ghi chú: " + note : "";
@@ -330,13 +240,16 @@ function showApproved(note, expiry){
         : "Hạn sử dụng: <strong>VÔ HẠN</strong>";
 }
 function showExpired(note, expiry){
+    isApproved = false;
+    approvedUntilMs = null;
     hideAll();
     document.getElementById("expiredBox").classList.remove("hidden");
     document.getElementById("expiredNote").textContent = note ? "Ghi chú: " + note : "";
-    document.getElementById("expiredDate").innerHTML =
-        "Đã hết hạn lúc: <strong>" + formatDate(expiry) + "</strong>";
+    document.getElementById("expiredDate").innerHTML = expiry
+        ? "Đã hết hạn lúc: <strong>" + formatDate(expiry) + "</strong>" : "";
 }
 function showError(){
+    isApproved = false;
     hideAll();
     document.getElementById("errorBox").classList.remove("hidden");
 }
@@ -349,6 +262,13 @@ function closePageAfterOpen(){
     }, 400);
 }
 function openTikTok(){
+    // Chốt chặn cuối: chưa được duyệt hoặc đã quá hạn thì KHÔNG mở
+    if(!isApproved) return;
+    if(approvedUntilMs !== null && Date.now() >= approvedUntilMs){
+        clearCache();
+        showExpired("", new Date(approvedUntilMs));
+        return;
+    }
     const roomId = getRoomId();
     if(!roomId) return;
     window.location.href = "snssdk1180://live?room_id=" + encodeURIComponent(roomId);
@@ -358,79 +278,82 @@ function showApprovedThenOpen(note, expiry){
     showApproved(note, expiry);
     setTimeout(openTikTok, SHOW_APPROVED_MS);
 }
+
+// ===== HỎI MÁY CHỦ: chỉ nhận trạng thái của đúng mã này =====
+async function askServer(deviceId){
+    if(!API_URL || API_URL.indexOf("DAN_URL") === 0) throw new Error("no api url");
+    const ctrl = new AbortController();
+    const timer = setTimeout(function(){ ctrl.abort(); }, API_TIMEOUT_MS);
+    try{
+        const res = await fetch(
+            API_URL + "?d=" + encodeURIComponent(deviceId) + "&t=" + Date.now(),
+            { method:"GET", cache:"no-store", signal: ctrl.signal }
+        );
+        if(!res.ok) throw new Error("api");
+        return await res.json();
+    }finally{
+        clearTimeout(timer);
+    }
+}
 async function checkFromNetwork(deviceId){
-    const vietnamNowPromise = getVietnamNowMs();
-    const devices = await readGoogleSheet();
-    const found = devices.find(function(item){
-        return item.device.trim() === deviceId.trim();
-    });
-    if(!found){
+    const data = await askServer(deviceId);
+    const note = data.note || "";
+
+    if(data.status === "denied"){
         writeCache({ deviceId: deviceId, status: "denied" });
         showDenied();
         return;
     }
-    if(!found.expiry){
-        writeCache({
-            deviceId: deviceId,
-            status: "approved",
-            note: found.note || "",
-            expiryMs: null
-        });
-        showApprovedThenOpen(found.note, null);
+    if(data.status === "approved" || data.status === "expired"){
+        const expiry = data.expiryMs ? new Date(data.expiryMs) : null;
+        // Mốc thời gian lớn nhất giữa giờ máy chủ và giờ máy -> chỉnh lùi đồng hồ vô ích
+        const nowMs = Math.max(Date.now(), +data.nowMs || 0);
+        const expired = data.status === "expired" || (expiry && nowMs >= expiry.getTime());
+        if(expired){
+            writeCache({ deviceId: deviceId, status: "expired", note: note,
+                         expiryMs: expiry ? expiry.getTime() : null });
+            showExpired(note, expiry);
+        }else{
+            writeCache({ deviceId: deviceId, status: "approved", note: note,
+                         expiryMs: expiry ? expiry.getTime() : null });
+            showApprovedThenOpen(note, expiry);
+        }
         return;
     }
-    const nowMs = await vietnamNowPromise;
-    const expiry = parseExpiry(found.expiry);
-    if(!expiry){
-        showError();
-        return;
-    }
-    if(nowMs > expiry.getTime()){
-        writeCache({
-            deviceId: deviceId,
-            status: "expired",
-            note: found.note || "",
-            expiryMs: expiry.getTime()
-        });
-        showExpired(found.note, expiry);
-    }else{
-        writeCache({
-            deviceId: deviceId,
-            status: "approved",
-            note: found.note || "",
-            expiryMs: expiry.getTime()
-        });
-        showApprovedThenOpen(found.note, expiry);
-    }
+    clearCache();
+    showError();
 }
 function checkDevice(){
     const deviceId = getDeviceId();
     document.getElementById("deviceCode").textContent = deviceId;
     document.getElementById("deviceCodeExpired").textContent = deviceId;
     document.getElementById("deviceCodeApproved").textContent = "(" + deviceId.substring(0,4) + ")";
+
     const cached = readCache(deviceId);
+
     if(cached && cached.status === "approved"){
-        showApprovedThenOpen(
-            cached.note || "",
-            cached.expiryMs ? new Date(cached.expiryMs) : null
-        );
-        setTimeout(function(){
-            checkFromNetwork(deviceId).catch(function(){});
-        }, RECHECK_DELAY_MS);
-        return;
+        const stillValid = (cached.expiryMs === null || cached.expiryMs === undefined)
+            ? true
+            : Date.now() < cached.expiryMs;
+        if(stillValid){
+            showApprovedThenOpen(
+                cached.note || "",
+                cached.expiryMs ? new Date(cached.expiryMs) : null
+            );
+            return;
+        }
+        clearCache();
     }
     if(cached && cached.status === "expired"){
         showExpired(cached.note || "", cached.expiryMs ? new Date(cached.expiryMs) : null);
         setTimeout(function(){
             checkFromNetwork(deviceId).catch(function(){});
-        }, 300);
+        }, RECHECK_DELAY_MS);
         return;
     }
+
+    // Lỗi mạng -> KHÔNG cho vào
     checkFromNetwork(deviceId).catch(function(){
-        if(cached && cached.status === "approved" && !cached.expiryMs){
-            showApprovedThenOpen(cached.note || "", null);
-            return;
-        }
         showError();
     });
 }
