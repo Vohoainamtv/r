@@ -255,10 +255,14 @@ async function readGoogleSheet(){
         const cols = parseCSVLine(lines[i]);
         const device = (cols[0] || "").trim();
         if(!device) continue;
+
+        // Đọc đầy đủ 4 cột: A=device, B=note, C=expiry, D=id
+        // Cột D được đọc nhưng KHÔNG bao giờ hiển thị trên web
         devices.push({
             device: device,
             note: (cols[1] || "").trim(),
-            expiry: (cols[2] || "").trim()
+            expiry: (cols[2] || "").trim(),
+            id: (cols[3] || "").trim()          // <-- cột D (id) - chỉ đọc, không hiện
         });
     }
     return devices;
