@@ -6,7 +6,6 @@
 <title>Quét Link VOHOAINAM</title>
 <link rel="dns-prefetch" href="https://script.google.com">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;width:100%;min-height:100%;background:#050505;color:#fff;
@@ -56,10 +55,12 @@ border-top-color:#25f4ee;border-radius:50%;animation:spin .7s linear infinite}
 <div class="card">
 <div class="logo">Quét Link VOHOAINAM</div>
 <div class="sub">XÁC MINH THIẾT BỊ</div>
+
 <div id="loadingBox" class="status loading">
 <div class="spinner"></div>
 Đang kiểm tra thiết bị...
 </div>
+
 <div id="deniedBox" class="hidden">
 <div class="status error">Thiết bị chưa được cấp phép</div>
 <div class="device-title">Mã thiết bị của bạn</div>
@@ -69,12 +70,11 @@ border-top-color:#25f4ee;border-radius:50%;animation:spin .7s linear infinite}
 </div>
 <div class="note">
 Vui lòng copy mã gửi về cho bot:
-<a href="https://t.me/" style="color:#25f4ee;text-decoration:none;">
-https://t.me
-</a> để được duyệt mã.<br>
-vui lòng liên hệ
+<a href="https://t.me/" style="color:#25f4ee;text-decoration:none;">https://t.me</a>
+để được duyệt mã.<br>vui lòng liên hệ
 </div>
 </div>
+
 <div id="approvedBox" class="hidden">
 <div class="status success">✓ Thiết bị đã được cấp phép</div>
 <div class="device-title">Mã thiết bị (4 ký tự đầu)</div>
@@ -85,6 +85,7 @@ vui lòng liên hệ
 <div id="expiryBox" class="expiry"></div>
 <button id="openBtn" class="open-btn">MỞ TIKTOK</button>
 </div>
+
 <div id="expiredBox" class="hidden">
 <div class="status warning">⚠ Thiết bị đã hết hạn</div>
 <div class="device-title">Mã thiết bị của bạn</div>
@@ -96,56 +97,37 @@ vui lòng liên hệ
 <div id="expiredDate" class="expiry"></div>
 <div class="note">
 Vui lòng copy mã gửi về cho bot:
-<a href="https://t.me/" style="color:#25f4ee;text-decoration:none;">
-https://t.me/
-</a> để được duyệt mã.<br>
-vui long liên hệ <br><br>
+<a href="https://t.me/" style="color:#25f4ee;text-decoration:none;">https://t.me/</a>
+để được duyệt mã.<br>vui lòng liên hệ <br><br>
 Thiết bị của bạn đã hết thời gian sử dụng.<br>
-Vui lòng liên hệ ctv  để gia hạn.
+Vui lòng liên hệ ctv để gia hạn.
 </div>
 </div>
+
+<div id="blockedBox" class="hidden">
+<div class="status warning">⛔ Mở link quá nhanh</div>
+<div class="note">Bạn mở quá nhiều link trong thời gian ngắn nên bị tạm chặn.<br>Vui lòng đợi rồi thử lại.</div>
+<div id="blockedUntil" class="expiry"></div>
+</div>
+
 <div id="errorBox" class="hidden">
-<div class="status error">Không thể kiểm tra thiết bị</div>
-<div class="note">Vui lòng kiểm tra kết nối mạng hoặc quyền truy cập.</div>
+<div id="errorTitle" class="status error">Không thể kiểm tra thiết bị</div>
+<div id="errorNote" class="note">Vui lòng kiểm tra kết nối mạng hoặc quyền truy cập.</div>
+</div>
+
 </div>
 </div>
-</div>
+
 <script>
 // ===== URL APPS SCRIPT (Web app) =====
-const API_URL = "https://script.google.com/macros/s/AKfycbwW7UiNjh29WsXs0Sa225vXc1IajocS9hMKSy8dVKa1Fz-hwxym-lvaqooFy9m-KmcH/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbwgcu-Vyjwmv9zD7mxq-fuLmI1EAZBDcKPR9B9l41O3zvnIvrMwuycgvZrlsNPJNIbb/exec";
 
-const CACHE_KEY = "tnam_auth_cache_v5";
-const CACHE_TTL_MS = 3000;
 const SHOW_APPROVED_MS = 400;
-const RECHECK_DELAY_MS = 300;
-const API_TIMEOUT_MS = 8000;
+const API_TIMEOUT_MS = 10000;
 
-// Hạn của lần duyệt hiện tại (ms). null = vô hạn.
-let approvedUntilMs = null;
+let approvedUntilMs = null;   // null = vô hạn
 let isApproved = false;
-
-// ===== AES KEY (giống bot) =====
-const AES_KEY_HEX = "c2272f29065fcfab89e4d94f2d7d89f3e9ba401a1ea05fd2480aa9d999b41144";
-const AES_IV_HEX  = "d934c1ec1d95acfe897511423e792f06";
-const AES_KEY = CryptoJS.enc.Hex.parse(AES_KEY_HEX);
-const AES_IV  = CryptoJS.enc.Hex.parse(AES_IV_HEX);
-
-function aesDecrypt(encrypted) {
-    if (!encrypted) return "";
-    try {
-        let b64 = String(encrypted).replace(/-/g, "+").replace(/_/g, "/");
-        while (b64.length % 4) b64 += "=";
-        const decrypted = CryptoJS.AES.decrypt(b64, AES_KEY, {
-            iv: AES_IV,
-            mode: CryptoJS.mode.CBC,
-            padding: CryptoJS.pad.Pkcs7
-        });
-        return decrypted.toString(CryptoJS.enc.Utf8);
-    } catch (e) {
-        console.error("AES decrypt error:", e);
-        return "";
-    }
-}
+let currentRoomId = "";       // do máy chủ giải mã và trả về, chỉ giữ trong bộ nhớ
 
 function generateDeviceId(){
     const uuid = crypto.randomUUID();
@@ -162,47 +144,10 @@ function getDeviceId(){
     }
     return id;
 }
-function getTikTokUrl(){
+// r = room id mã hóa AES, gửi nguyên cho máy chủ giải mã
+function getEncryptedR(){
     const params = new URLSearchParams(window.location.search);
-    return params.get("url") || params.get("u") || "";
-}
-function getRoomIdFromUrl(url){
-    if(!url) return "";
-    let m = url.match(/room_id=(\d+)/i);
-    if(m) return m[1];
-    m = url.match(/\/live\/(\d+)/i);
-    return m ? m[1] : "";
-}
-function getRoomId(){
-    const params = new URLSearchParams(window.location.search);
-    const r = params.get("r");
-    if(r){
-        const decoded = aesDecrypt(r);
-        if(decoded && /^\d{10,}$/.test(decoded)) return decoded;
-    }
-    return getRoomIdFromUrl(getTikTokUrl());
-}
-
-// ===== CACHE (chỉ dùng Date.now) =====
-function readCache(deviceId){
-    try{
-        const raw = localStorage.getItem(CACHE_KEY);
-        if(!raw) return null;
-        const data = JSON.parse(raw);
-        if(!data || data.deviceId !== deviceId) return null;
-        const age = Date.now() - (data.checkedAt || 0);
-        if(age < 0 || age > CACHE_TTL_MS) return null;
-        return data;
-    }catch(e){ return null; }
-}
-function writeCache(payload){
-    try{
-        payload.checkedAt = Date.now();
-        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-    }catch(e){}
-}
-function clearCache(){
-    try{ localStorage.removeItem(CACHE_KEY); }catch(e){}
+    return (params.get("r") || "").trim();
 }
 
 function formatDate(date){
@@ -221,7 +166,7 @@ function formatDate(date){
     return get("hour") + ":" + get("minute") + " " + get("day") + "/" + get("month") + "/" + get("year");
 }
 function hideAll(){
-    ["loadingBox","deniedBox","approvedBox","expiredBox","errorBox"]
+    ["loadingBox","deniedBox","approvedBox","expiredBox","blockedBox","errorBox"]
         .forEach(function(id){ document.getElementById(id).classList.add("hidden"); });
 }
 function showDenied(){
@@ -242,15 +187,26 @@ function showApproved(note, expiry){
 function showExpired(note, expiry){
     isApproved = false;
     approvedUntilMs = null;
+    currentRoomId = "";
     hideAll();
     document.getElementById("expiredBox").classList.remove("hidden");
     document.getElementById("expiredNote").textContent = note ? "Ghi chú: " + note : "";
     document.getElementById("expiredDate").innerHTML = expiry
         ? "Đã hết hạn lúc: <strong>" + formatDate(expiry) + "</strong>" : "";
 }
-function showError(){
+function showBlocked(untilMs){
     isApproved = false;
     hideAll();
+    document.getElementById("blockedUntil").innerHTML = untilMs
+        ? "Mở lại sau: <strong>" + formatDate(new Date(untilMs)) + "</strong>" : "";
+    document.getElementById("blockedBox").classList.remove("hidden");
+}
+function showError(title, note){
+    isApproved = false;
+    hideAll();
+    document.getElementById("errorTitle").textContent = title || "Không thể kiểm tra thiết bị";
+    document.getElementById("errorNote").textContent =
+        note || "Vui lòng kiểm tra kết nối mạng hoặc quyền truy cập.";
     document.getElementById("errorBox").classList.remove("hidden");
 }
 function closePageAfterOpen(){
@@ -263,15 +219,14 @@ function closePageAfterOpen(){
 }
 function openTikTok(){
     // Chốt chặn cuối: chưa được duyệt hoặc đã quá hạn thì KHÔNG mở
-    if(!isApproved) return;
+    if(!isApproved || !currentRoomId) return;
     if(approvedUntilMs !== null && Date.now() >= approvedUntilMs){
-        clearCache();
         showExpired("", new Date(approvedUntilMs));
         return;
     }
-    const roomId = getRoomId();
-    if(!roomId) return;
-    window.location.href = "snssdk1180://live?room_id=" + encodeURIComponent(roomId);
+    const rid = currentRoomId;
+    currentRoomId = "";
+    window.location.href = "snssdk1180://live?room_id=" + encodeURIComponent(rid);
     closePageAfterOpen();
 }
 function showApprovedThenOpen(note, expiry){
@@ -279,82 +234,54 @@ function showApprovedThenOpen(note, expiry){
     setTimeout(openTikTok, SHOW_APPROVED_MS);
 }
 
-// ===== HỎI MÁY CHỦ: chỉ nhận trạng thái của đúng mã này =====
-async function askServer(deviceId){
-    if(!API_URL || API_URL.indexOf("DAN_URL") === 0) throw new Error("no api url");
+// ===== HỎI MÁY CHỦ =====
+async function askServer(deviceId, r){
     const ctrl = new AbortController();
     const timer = setTimeout(function(){ ctrl.abort(); }, API_TIMEOUT_MS);
     try{
-        const res = await fetch(
-            API_URL + "?d=" + encodeURIComponent(deviceId) + "&t=" + Date.now(),
-            { method:"GET", cache:"no-store", signal: ctrl.signal }
-        );
-        if(!res.ok) throw new Error("api");
+        let url = API_URL + "?d=" + encodeURIComponent(deviceId) + "&t=" + Date.now();
+        if(r) url += "&r=" + encodeURIComponent(r);
+        const res = await fetch(url, { method:"GET", cache:"no-store", signal: ctrl.signal });
+        if(!res.ok) throw new Error("HTTP " + res.status);
         return await res.json();
     }finally{
         clearTimeout(timer);
     }
 }
 async function checkFromNetwork(deviceId){
-    const data = await askServer(deviceId);
+    const data = await askServer(deviceId, getEncryptedR());
     const note = data.note || "";
 
-    if(data.status === "denied"){
-        writeCache({ deviceId: deviceId, status: "denied" });
-        showDenied();
+    if(data.status === "denied"){ showDenied(); return; }
+    if(data.status === "blocked"){ showBlocked(data.untilMs); return; }
+    if(data.status === "badlink"){
+        showError("Link không hợp lệ", "Link bị sai hoặc hết hiệu lực. Vui lòng lấy link mới.");
         return;
     }
     if(data.status === "approved" || data.status === "expired"){
         const expiry = data.expiryMs ? new Date(data.expiryMs) : null;
-        // Mốc thời gian lớn nhất giữa giờ máy chủ và giờ máy -> chỉnh lùi đồng hồ vô ích
+        // Mốc lớn nhất giữa giờ máy chủ và giờ máy -> chỉnh lùi đồng hồ vô ích
         const nowMs = Math.max(Date.now(), +data.nowMs || 0);
         const expired = data.status === "expired" || (expiry && nowMs >= expiry.getTime());
-        if(expired){
-            writeCache({ deviceId: deviceId, status: "expired", note: note,
-                         expiryMs: expiry ? expiry.getTime() : null });
-            showExpired(note, expiry);
-        }else{
-            writeCache({ deviceId: deviceId, status: "approved", note: note,
-                         expiryMs: expiry ? expiry.getTime() : null });
-            showApprovedThenOpen(note, expiry);
+        if(expired){ showExpired(note, expiry); return; }
+        if(!data.roomId){
+            showError("Link không hợp lệ", "Link bị sai hoặc hết hiệu lực. Vui lòng lấy link mới.");
+            return;
         }
+        currentRoomId = String(data.roomId);
+        showApprovedThenOpen(note, expiry);
         return;
     }
-    clearCache();
-    showError();
+    showError("Không thể kiểm tra thiết bị", data.msg ? ("Lỗi: " + data.msg) : "");
 }
 function checkDevice(){
     const deviceId = getDeviceId();
     document.getElementById("deviceCode").textContent = deviceId;
     document.getElementById("deviceCodeExpired").textContent = deviceId;
     document.getElementById("deviceCodeApproved").textContent = "(" + deviceId.substring(0,4) + ")";
-
-    const cached = readCache(deviceId);
-
-    if(cached && cached.status === "approved"){
-        const stillValid = (cached.expiryMs === null || cached.expiryMs === undefined)
-            ? true
-            : Date.now() < cached.expiryMs;
-        if(stillValid){
-            showApprovedThenOpen(
-                cached.note || "",
-                cached.expiryMs ? new Date(cached.expiryMs) : null
-            );
-            return;
-        }
-        clearCache();
-    }
-    if(cached && cached.status === "expired"){
-        showExpired(cached.note || "", cached.expiryMs ? new Date(cached.expiryMs) : null);
-        setTimeout(function(){
-            checkFromNetwork(deviceId).catch(function(){});
-        }, RECHECK_DELAY_MS);
-        return;
-    }
-
     // Lỗi mạng -> KHÔNG cho vào
-    checkFromNetwork(deviceId).catch(function(){
-        showError();
+    checkFromNetwork(deviceId).catch(function(e){
+        showError("Không thể kiểm tra thiết bị", "Lỗi kết nối: " + (e && e.message ? e.message : ""));
     });
 }
 async function copyDevice(){
