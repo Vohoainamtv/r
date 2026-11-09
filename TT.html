@@ -50,6 +50,7 @@
       font-family: ui-monospace, monospace; font-size: 13px;
       background: #0a0a0a; padding: 8px 10px; border-radius: 8px;
       margin-top: 6px; display: block; user-select: all; word-break: break-all;
+      text-transform: none;
     }
     #qrWrap {
       margin: 16px auto 0; width: 220px; height: 220px;
@@ -95,7 +96,7 @@
   <div class="logo">VN</div>
   <h1>Nạp tiền VOHOAINAM</h1>
   <div class="botname">Bot CTV Thiết Bị – Nạp ví tự động</div>
-  <p class="sub">Chuyển khoản đúng nội dung trong 10 phút</p>
+  <p class="sub">Chuyển khoản đúng nội dung (giữ nguyên chữ HOA) trong 10 phút</p>
 
   <div id="payBlock">
     <div class="countdown" id="cdBox">
@@ -142,7 +143,6 @@
   const BANK_ACC = "109610200297";
   const BANK_NAME = "VietinBank";
   const BANK_HOLDER = "VO HOAI NAM";
-  const CK_PREFIX = "naptienvohoainamsevqr";   // lower
 
   const POLL_MS = 2000;
   const LAST_ROWS = 80;
@@ -150,8 +150,15 @@
 
   /* ========================= ĐỌC PARAM URL ========================= */
   const params = new URLSearchParams(location.search);
-  const orderId = params.get("order") || "";
-  const ck = (params.get("ck") || "").trim().toLowerCase();
+  const orderId = (params.get("order") || "").replace(/[^\d]/g, "");
+
+  // GIỮ NGUYÊN chữ hoa/thường, chỉ ép phần SEVQR thành chữ HOA (SePay yêu cầu)
+  const ck = (params.get("ck") || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/sevqr/ig, "SEVQR");
+  const ckKey = ck.toLowerCase();   // chỉ dùng để so khớp
+
   const amount = parseInt(params.get("amount") || "0", 10) || 0;
   let until = parseInt(params.get("until") || "0", 10) || 0;
 
@@ -159,7 +166,7 @@
     until = Math.floor(Date.now() / 1000) + DEFAULT_SEC;
   }
 
-  const storageKey = "vn_paid_" + (orderId || ck || "x");
+  const storageKey = "vn_paid_" + (orderId || ckKey || "x");
 
   /* ========================= DOM ========================= */
   const payBlock = document.getElementById("payBlock");
@@ -171,6 +178,12 @@
   const btnCopy = document.getElementById("btnCopy");
   const cdBox = document.getElementById("cdBox");
   const cdTime = document.getElementById("cdTime");
+
+  function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
 
   function showSuccessOnly() {
     payBlock.style.display = "none";
@@ -231,13 +244,13 @@
     "<div>Số tiền: <b>" + amount.toLocaleString("vi-VN") + "đ</b></div>" +
     "<div>STK: <b>" + BANK_ACC + "</b> · " + BANK_NAME + "</div>" +
     "<div>Chủ TK: <b>" + BANK_HOLDER + "</b></div>" +
-    "<div style='margin-top:6px'>Nội dung chuyển khoản:</div>" +
-    "<span class='ck'>" + ck + "</span>";
+    "<div style='margin-top:6px'>Nội dung chuyển khoản (giữ nguyên chữ HOA):</div>" +
+    "<span class='ck'>" + escHtml(ck) + "</span>";
 
   /* ========================= TẠO QR ========================= */
   const img = document.createElement("img");
   img.alt = "QR";
-  // Dùng BIN VietinBank 970415 cho ổn định
+  // BIN VietinBank 970415. addInfo giữ nguyên SEVQR viết hoa
   img.src =
     "https://img.vietqr.io/image/970415-" +
     encodeURIComponent(BANK_ACC) +
@@ -292,25 +305,56 @@
     return out;
   }
 
-  /* Tìm mã CK trong bất kỳ cột nào (hỗ trợ naptienvohoainamSEVQR + 6 ký tự) */
+  /* Tìm mã CK trong bất kỳ cột nào (so khớp KHÔNG phân biệt hoa/thường) */
   function findCkInRow(parts) {
     const joined = parts.join(" ").toLowerCase().replace(/\s+/g, "");
-    // Phải có sevqr
     if (joined.indexOf("sevqr") === -1) return "";
     const m = joined.match(/naptienvohoainamsevqr[a-z0-9]{6}/);
     return m ? m[0] : "";
   }
 
-  function moneyFromRow(parts) {
-    let max = 0;
-    for (let i = 0; i < parts.length; i++) {
-      const d = String(parts[i] || "").replace(/[^\d]/g, "");
-      if (d) {
-        const n = parseInt(d, 10);
-        if (n >= 1000 && n <= 50000000 && n > max) max = n;
-      }
+  function normTxt(x) {
+    return String(x || "").toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").trim();
+  }
+
+  let amountCol = -1, typeCol = -1;
+  function findCols(header) {
+    amountCol = -1; typeCol = -1;
+    for (let i = 0; i < header.length; i++) {
+      const n = normTxt(header[i]);
+      if (amountCol < 0 && (n === "amount" || n.indexOf("so tien") === 0)) amountCol = i;
+      else if (typeCol < 0 && (n === "loai" || n === "type")) typeCol = i;
     }
-    return max;
+  }
+
+  function cellAmount(s) {
+    s = String(s || "").trim().replace(/[.,]\d{1,2}$/, "");
+    const d = s.replace(/[^\d]/g, "");
+    return d ? parseInt(d, 10) : null;
+  }
+
+  function rowIsIncoming(parts) {
+    if (typeCol < 0 || typeCol >= parts.length) return true;
+    const n = normTxt(parts[typeCol]);
+    return !n || n.indexOf("vao") >= 0 || n === "in" || n === "credit";
+  }
+
+  /* Ưu tiên đọc đúng cột "Số tiền"; không có thì chỉ xét ô thuần số */
+  function rowHasAmount(parts) {
+    if (amountCol >= 0 && amountCol < parts.length) {
+      const v = cellAmount(parts[amountCol]);
+      return v !== null && Math.abs(v - amount) <= 100;
+    }
+    const re = /^[+\-]?\d[\d.,\s]*(?:đ|vnd|vnđ)?$/i;
+    for (let i = 0; i < parts.length; i++) {
+      const s = String(parts[i] || "").trim();
+      if (!s || s.indexOf(":") >= 0 || s.slice(1).indexOf("-") >= 0) continue;
+      if (!re.test(s)) continue;
+      const v = cellAmount(s);
+      if (v !== null && Math.abs(v - amount) <= 100) return true;
+    }
+    return false;
   }
 
   let done = false;
@@ -336,10 +380,9 @@
 
   function rowMatches(parts) {
     const code = findCkInRow(parts);
-    if (!code || code !== ck.replace(/\s+/g, "")) return false;
-    // Số tiền trên sheet >= số tiền đơn (cho phép chênh lệch nhỏ)
-    const money = moneyFromRow(parts);
-    return money >= amount - 100;
+    if (!code || code !== ckKey) return false;
+    if (!rowIsIncoming(parts)) return false;
+    return rowHasAmount(parts);
   }
 
   async function checkSheet() {
@@ -351,7 +394,9 @@
       );
       if (!res.ok) throw new Error("HTTP " + res.status);
 
-      const lines = (await res.text()).split(/\r?\n/).filter(Boolean).slice(1).slice(-LAST_ROWS);
+      const all = (await res.text()).split(/\r?\n/).filter(Boolean);
+      if (all.length) findCols(parseCsvLine(all[0]));
+      const lines = all.slice(1).slice(-LAST_ROWS);
 
       for (let i = lines.length - 1; i >= 0; i--) {
         if (rowMatches(parseCsvLine(lines[i]))) {
