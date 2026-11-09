@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Nạp tiền VOHOAINAM</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: system-ui, -apple-system, Arial, sans-serif;
+      background: #080808; color: #fff;
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .card {
+      width: 100%; max-width: 420px;
+      background: #111; border: 1px solid #292929;
+      border-radius: 20px; padding: 28px 20px;
+      box-shadow: 0 0 40px rgba(255,44,85,.1);
+      text-align: center;
+    }
+    .logo {
+      width: 56px; height: 56px; margin: 0 auto 10px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #ff2c55, #25f4ee);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 16px;
+    }
+    h1 { margin: 0; font-size: 18px; }
+    .botname { color: #25f4ee; font-size: 13px; margin-top: 4px; font-weight: 600; }
+    .sub { color: #888; font-size: 12px; margin-top: 6px; line-height: 1.45; }
+    .countdown {
+      margin-top: 14px; padding: 14px 12px; border-radius: 14px;
+      background: #1a1208; border: 1px solid #f59e0b55;
+    }
+    .countdown .label { font-size: 12px; color: #fbbf24; margin-bottom: 4px; }
+    .countdown .time {
+      font-size: 36px; font-weight: 800; letter-spacing: 2px;
+      font-variant-numeric: tabular-nums; color: #fbbf24;
+    }
+    .countdown.urgent .time { color: #f87171; }
+    .countdown.expired .time { color: #f87171; font-size: 20px; }
+    .box {
+      margin-top: 14px; padding: 12px; background: #181818;
+      border: 1px solid #292929; border-radius: 14px;
+      text-align: left; font-size: 13px;
+    }
+    .box b { color: #25f4ee; }
+    .ck {
+      font-family: ui-monospace, monospace; font-size: 13px;
+      background: #0a0a0a; padding: 8px 10px; border-radius: 8px;
+      margin-top: 6px; display: block; user-select: all; word-break: break-all;
+    }
+    #qrWrap {
+      margin: 16px auto 0; width: 220px; height: 220px;
+      background: #fff; border-radius: 12px; padding: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #qrWrap img { width: 100%; height: 100%; object-fit: contain; }
+    .status {
+      margin-top: 14px; padding: 12px; border-radius: 12px;
+      border: 1px solid #292929; background: #181818;
+      font-size: 14px; line-height: 1.5;
+    }
+    .status.wait { border-color: #f59e0b; color: #fbbf24; }
+    .status.ok { border-color: #22c55e; color: #4ade80; }
+    .status.err { border-color: #ef4444; color: #f87171; }
+    #successView { display: none; padding: 12px 0 4px; }
+    .check {
+      width: 88px; height: 88px; margin: 8px auto 16px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 48px; color: #fff;
+      box-shadow: 0 0 30px rgba(34,197,94,.35);
+    }
+    .ok-title { font-size: 20px; font-weight: 800; color: #4ade80; margin: 0 0 10px; }
+    .ok-msg { color: #ccc; font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
+    .ok-bot {
+      display: inline-block; margin-top: 8px; padding: 10px 14px;
+      background: #181818; border: 1px solid #25f4ee55; border-radius: 10px;
+      color: #25f4ee; font-weight: 700; font-size: 14px; text-decoration: none;
+    }
+    button {
+      margin-top: 10px; width: 100%; padding: 13px; border: none;
+      border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer;
+    }
+    .btn-copy { background: #3b82f6; color: #fff; }
+    .hint { margin-top: 14px; color: #666; font-size: 12px; }
+    #payBlock { display: block; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">VN</div>
+  <h1>Nạp tiền VOHOAINAM</h1>
+  <div class="botname">Bot CTV Thiết Bị – Nạp ví tự động</div>
+  <p class="sub">Chuyển khoản đúng nội dung trong 10 phút</p>
+
+  <div id="payBlock">
+    <div class="countdown" id="cdBox">
+      <div class="label">THỜI HẠN THANH TOÁN</div>
+      <div class="time" id="cdTime">10:00</div>
+    </div>
+
+    <div class="box" id="infoBox">Đang tải...</div>
+
+    <div id="qrWrap">
+      <span style="color:#333;font-size:12px">QR...</span>
+    </div>
+
+    <div class="status wait" id="statusBox">⏳ Quét QR và chuyển khoản...</div>
+
+    <button class="btn-copy" type="button" id="btnCopy">📋 Copy nội dung CK</button>
+  </div>
+
+  <div id="successView">
+    <div class="check">✓</div>
+    <p class="ok-title">Nạp tiền thành công</p>
+    <p class="ok-msg">
+      Số tiền đã được cộng vào ví của bạn.<br>
+      Quay lại bot để sử dụng.
+    </p>
+    <p class="ok-msg" id="autoCloseMsg" style="color:#fbbf24;margin-top:12px">
+      Trang sẽ tự đóng sau <b id="closeSec">5</b> giây...
+    </p>
+    <a class="ok-bot" href="https://t.me/" target="_blank" rel="noopener" id="botLink">
+      Mở bot
+    </a>
+    <p class="hint" style="margin-top:18px">Admin hỗ trợ: @anhnamtv</p>
+  </div>
+
+  <p class="hint" id="adminHint">Admin hỗ trợ: @anhnamtv</p>
+</div>
+
+<script>
+(function () {
+  /* ========================= CẤU HÌNH ========================= */
+  const SHEET_CSV =
+    "https://docs.google.com/spreadsheets/d/1Yej8RZdbc6oAOmaCMvLV1MlLmYqd50dlsLO73BX8o5g/export?format=csv";
+
+  const BANK_ACC = "109610200297";
+  const BANK_NAME = "VietinBank";
+  const BANK_HOLDER = "VO HOAI NAM";
+  const CK_PREFIX = "naptienvohoainamsevqr";   // lower
+
+  const POLL_MS = 2000;
+  const LAST_ROWS = 80;
+  const DEFAULT_SEC = 600;
+
+  /* ========================= ĐỌC PARAM URL ========================= */
+  const params = new URLSearchParams(location.search);
+  const orderId = params.get("order") || "";
+  const ck = (params.get("ck") || "").trim().toLowerCase();
+  const amount = parseInt(params.get("amount") || "0", 10) || 0;
+  let until = parseInt(params.get("until") || "0", 10) || 0;
+
+  if (!until || until < 1e9) {
+    until = Math.floor(Date.now() / 1000) + DEFAULT_SEC;
+  }
+
+  const storageKey = "vn_paid_" + (orderId || ck || "x");
+
+  /* ========================= DOM ========================= */
+  const payBlock = document.getElementById("payBlock");
+  const successView = document.getElementById("successView");
+  const adminHint = document.getElementById("adminHint");
+  const infoBox = document.getElementById("infoBox");
+  const statusBox = document.getElementById("statusBox");
+  const qrWrap = document.getElementById("qrWrap");
+  const btnCopy = document.getElementById("btnCopy");
+  const cdBox = document.getElementById("cdBox");
+  const cdTime = document.getElementById("cdTime");
+
+  function showSuccessOnly() {
+    payBlock.style.display = "none";
+    successView.style.display = "block";
+    adminHint.style.display = "none";
+    document.title = "✅ Nạp tiền thành công";
+
+    let sec = 5;
+    const secEl = document.getElementById("closeSec");
+    const timer = setInterval(function () {
+      sec--;
+      if (secEl) secEl.textContent = sec;
+      if (sec <= 0) {
+        clearInterval(timer);
+        try { window.close(); } catch (e) {}
+        const msg = document.getElementById("autoCloseMsg");
+        if (msg) msg.textContent = "Bạn có thể đóng trang này.";
+      }
+    }, 1000);
+  }
+
+  function showExpiredOnly() {
+    payBlock.style.display = "none";
+    successView.style.display = "block";
+    adminHint.style.display = "none";
+    successView.innerHTML = `
+      <div class="check" style="background:linear-gradient(135deg,#ef4444,#b91c1c);box-shadow:0 0 30px rgba(239,68,68,.35);">×</div>
+      <p class="ok-title" style="color:#f87171">Đơn nạp đã hết hạn</p>
+      <p class="ok-msg">
+        Thời gian thanh toán 10 phút đã kết thúc.<br>
+        Vui lòng quay lại bot để tạo đơn mới.
+      </p>
+      <a class="ok-bot" href="https://t.me/" target="_blank" rel="noopener">Mở bot</a>
+      <p class="hint" style="margin-top:18px">Admin hỗ trợ: @anhnamtv</p>
+    `;
+    document.title = "⏰ Đơn nạp hết hạn";
+  }
+
+  try {
+    if (localStorage.getItem(storageKey) === "1") {
+      showSuccessOnly();
+      return;
+    }
+  } catch (e) {}
+
+  if (!ck || !amount) {
+    infoBox.innerHTML = "❌ Link không hợp lệ. Mở lại từ bot.";
+    statusBox.className = "status err";
+    statusBox.textContent = "Thiếu thông tin đơn";
+    qrWrap.style.display = "none";
+    btnCopy.style.display = "none";
+    return;
+  }
+
+  /* ========================= THÔNG TIN ========================= */
+  infoBox.innerHTML =
+    (orderId ? "<div>Mã đơn: <b>#" + orderId + "</b></div>" : "") +
+    "<div>Số tiền: <b>" + amount.toLocaleString("vi-VN") + "đ</b></div>" +
+    "<div>STK: <b>" + BANK_ACC + "</b> · " + BANK_NAME + "</div>" +
+    "<div>Chủ TK: <b>" + BANK_HOLDER + "</b></div>" +
+    "<div style='margin-top:6px'>Nội dung chuyển khoản:</div>" +
+    "<span class='ck'>" + ck + "</span>";
+
+  /* ========================= TẠO QR ========================= */
+  const img = document.createElement("img");
+  img.alt = "QR";
+  // Dùng BIN VietinBank 970415 cho ổn định
+  img.src =
+    "https://img.vietqr.io/image/970415-" +
+    encodeURIComponent(BANK_ACC) +
+    "-compact2.png?amount=" + amount +
+    "&addInfo=" + encodeURIComponent(ck) +
+    "&accountName=" + encodeURIComponent(BANK_HOLDER);
+
+  img.onerror = function () {
+    qrWrap.innerHTML = "<span style='color:#666;font-size:12px'>CK thủ công theo STK + nội dung</span>";
+  };
+  qrWrap.innerHTML = "";
+  qrWrap.appendChild(img);
+
+  /* ========================= COPY ========================= */
+  btnCopy.onclick = function () {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(ck).then(function () {
+        btnCopy.textContent = "✅ Đã copy";
+      });
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = ck;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      btnCopy.textContent = "✅ Đã copy";
+    }
+  };
+
+  function setStatus(k, h) {
+    statusBox.className = "status " + k;
+    statusBox.innerHTML = h;
+  }
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function fmtRemain(s) {
+    s = Math.max(0, s | 0);
+    return pad(Math.floor(s / 60)) + ":" + pad(s % 60);
+  }
+
+  function parseCsvLine(line) {
+    const out = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; continue; }
+      if (c === "," && !inQ) { out.push(cur); cur = ""; continue; }
+      cur += c;
+    }
+    out.push(cur);
+    return out;
+  }
+
+  /* Tìm mã CK trong bất kỳ cột nào (hỗ trợ naptienvohoainamSEVQR + 6 ký tự) */
+  function findCkInRow(parts) {
+    const joined = parts.join(" ").toLowerCase().replace(/\s+/g, "");
+    // Phải có sevqr
+    if (joined.indexOf("sevqr") === -1) return "";
+    const m = joined.match(/naptienvohoainamsevqr[a-z0-9]{6}/);
+    return m ? m[0] : "";
+  }
+
+  function moneyFromRow(parts) {
+    let max = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const d = String(parts[i] || "").replace(/[^\d]/g, "");
+      if (d) {
+        const n = parseInt(d, 10);
+        if (n >= 1000 && n <= 50000000 && n > max) max = n;
+      }
+    }
+    return max;
+  }
+
+  let done = false;
+  let expired = false;
+
+  function markPaidUI() {
+    done = true;
+    try { localStorage.setItem(storageKey, "1"); } catch (e) {}
+    showSuccessOnly();
+  }
+
+  function tickCountdown() {
+    if (done || expired) return;
+    const remain = until - Math.floor(Date.now() / 1000);
+    if (remain <= 0) {
+      expired = true;
+      showExpiredOnly();
+      return;
+    }
+    cdTime.textContent = fmtRemain(remain);
+    cdBox.className = remain <= 60 ? "countdown urgent" : "countdown";
+  }
+
+  function rowMatches(parts) {
+    const code = findCkInRow(parts);
+    if (!code || code !== ck.replace(/\s+/g, "")) return false;
+    // Số tiền trên sheet >= số tiền đơn (cho phép chênh lệch nhỏ)
+    const money = moneyFromRow(parts);
+    return money >= amount - 100;
+  }
+
+  async function checkSheet() {
+    if (done || expired) return;
+    try {
+      const res = await fetch(
+        SHEET_CSV + (SHEET_CSV.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now(),
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      const lines = (await res.text()).split(/\r?\n/).filter(Boolean).slice(1).slice(-LAST_ROWS);
+
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (rowMatches(parseCsvLine(lines[i]))) {
+          markPaidUI();
+          return;
+        }
+      }
+
+      const remain = until - Math.floor(Date.now() / 1000);
+      if (remain <= 0) return;
+
+      setStatus("wait", "⏳ Chưa thấy giao dịch · còn " + fmtRemain(remain));
+    } catch (e) {
+      if (!expired) {
+        setStatus("err", "⚠️ " + (e.message || e));
+      }
+    }
+  }
+
+  tickCountdown();
+  setInterval(tickCountdown, 1000);
+  checkSheet();
+  setInterval(checkSheet, POLL_MS);
+})();
+</script>
+</body>
+</html>
