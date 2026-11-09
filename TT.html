@@ -136,23 +136,33 @@
 
 <script>
 (function () {
+
   /* ========================= CẤU HÌNH ========================= */
-  const SHEET_CSV =
-    "https://docs.google.com/spreadsheets/d/1Yej8RZdbc6oAOmaCMvLV1MlLmYqd50dlsLO73BX8o5g/export?format=csv";
+  const SHEET_ID = "1Yej8RZdbc6oAOmaCMvLV1MlLmYqd50dlsLO73BX8o5g";
+  // Thử export trước (bản đang chạy được), lỗi thì thử gviz
+  const SHEET_URLS = [
+    "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/export?format=csv",
+    "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:csv"
+  ];
 
   const BANK_ACC = "109610200297";
   const BANK_NAME = "VietinBank";
   const BANK_HOLDER = "VO HOAI NAM";
 
-  const POLL_MS = 2000;
-  const LAST_ROWS = 80;
+  const POLL_MS = 3000;
+  const LAST_ROWS = 60;
   const DEFAULT_SEC = 600;
+
+  /* Cột Google Sheet: F = Nội dung, G = Loại, H = Số tiền */
+  const COL_F = 5;
+  const COL_G = 6;
+  const COL_H = 7;
 
   /* ========================= ĐỌC PARAM URL ========================= */
   const params = new URLSearchParams(location.search);
   const orderId = (params.get("order") || "").replace(/[^\d]/g, "");
 
-  // GIỮ NGUYÊN chữ hoa/thường, chỉ ép phần SEVQR thành chữ HOA (SePay yêu cầu)
+  // Giữ nguyên chữ hoa/thường, chỉ ép SEVQR thành chữ HOA (SePay yêu cầu)
   const ck = (params.get("ck") || "")
     .trim()
     .replace(/\s+/g, "")
@@ -185,6 +195,7 @@
     });
   }
 
+  /* ========================= THÀNH CÔNG ========================= */
   function showSuccessOnly() {
     payBlock.style.display = "none";
     successView.style.display = "block";
@@ -205,6 +216,7 @@
     }, 1000);
   }
 
+  /* ========================= HẾT HẠN ========================= */
   function showExpiredOnly() {
     payBlock.style.display = "none";
     successView.style.display = "block";
@@ -222,6 +234,7 @@
     document.title = "⏰ Đơn nạp hết hạn";
   }
 
+  /* ========================= ĐÃ THANH TOÁN TRƯỚC ĐÓ ========================= */
   try {
     if (localStorage.getItem(storageKey) === "1") {
       showSuccessOnly();
@@ -229,6 +242,7 @@
     }
   } catch (e) {}
 
+  /* ========================= KIỂM TRA LINK ========================= */
   if (!ck || !amount) {
     infoBox.innerHTML = "❌ Link không hợp lệ. Mở lại từ bot.";
     statusBox.className = "status err";
@@ -250,7 +264,6 @@
   /* ========================= TẠO QR ========================= */
   const img = document.createElement("img");
   img.alt = "QR";
-  // BIN VietinBank 970415. addInfo giữ nguyên SEVQR viết hoa
   img.src =
     "https://img.vietqr.io/image/970415-" +
     encodeURIComponent(BANK_ACC) +
@@ -292,6 +305,7 @@
     return pad(Math.floor(s / 60)) + ":" + pad(s % 60);
   }
 
+  /* ========================= CSV ========================= */
   function parseCsvLine(line) {
     const out = [];
     let cur = "", inQ = false;
@@ -305,56 +319,25 @@
     return out;
   }
 
-  /* Tìm mã CK trong bất kỳ cột nào (so khớp KHÔNG phân biệt hoa/thường) */
-  function findCkInRow(parts) {
-    const joined = parts.join(" ").toLowerCase().replace(/\s+/g, "");
-    if (joined.indexOf("sevqr") === -1) return "";
-    const m = joined.match(/naptienvohoainamsevqr[a-z0-9]{6}/);
+  /* Lấy mã CK từ cột F, KHÔNG phân biệt hoa/thường */
+  function ckFromColF(content) {
+    const noSpace = String(content || "").toLowerCase().replace(/\s+/g, "");
+    const m = noSpace.match(/naptienvohoainamsevqr[a-z0-9]{6}/);
     return m ? m[0] : "";
   }
 
-  function normTxt(x) {
-    return String(x || "").toLowerCase().normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").trim();
-  }
-
-  let amountCol = -1, typeCol = -1;
-  function findCols(header) {
-    amountCol = -1; typeCol = -1;
-    for (let i = 0; i < header.length; i++) {
-      const n = normTxt(header[i]);
-      if (amountCol < 0 && (n === "amount" || n.indexOf("so tien") === 0)) amountCol = i;
-      else if (typeCol < 0 && (n === "loai" || n === "type")) typeCol = i;
-    }
-  }
-
-  function cellAmount(s) {
-    s = String(s || "").trim().replace(/[.,]\d{1,2}$/, "");
+  /* Lấy số tiền từ cột H (bỏ phần thập phân .00 / ,00) */
+  function moneyFromColH(raw) {
+    const s = String(raw || "").trim().replace(/[.,]\d{1,2}$/, "");
     const d = s.replace(/[^\d]/g, "");
-    return d ? parseInt(d, 10) : null;
+    return d ? parseInt(d, 10) : 0;
   }
 
-  function rowIsIncoming(parts) {
-    if (typeCol < 0 || typeCol >= parts.length) return true;
-    const n = normTxt(parts[typeCol]);
-    return !n || n.indexOf("vao") >= 0 || n === "in" || n === "credit";
-  }
-
-  /* Ưu tiên đọc đúng cột "Số tiền"; không có thì chỉ xét ô thuần số */
-  function rowHasAmount(parts) {
-    if (amountCol >= 0 && amountCol < parts.length) {
-      const v = cellAmount(parts[amountCol]);
-      return v !== null && Math.abs(v - amount) <= 100;
-    }
-    const re = /^[+\-]?\d[\d.,\s]*(?:đ|vnd|vnđ)?$/i;
-    for (let i = 0; i < parts.length; i++) {
-      const s = String(parts[i] || "").trim();
-      if (!s || s.indexOf(":") >= 0 || s.slice(1).indexOf("-") >= 0) continue;
-      if (!re.test(s)) continue;
-      const v = cellAmount(s);
-      if (v !== null && Math.abs(v - amount) <= 100) return true;
-    }
-    return false;
+  /* Loại giao dịch: "Tiền ra" / out / chi => bỏ qua */
+  function isOutgoing(raw) {
+    const n = String(raw || "").toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").trim();
+    return n === "out" || n === "chi" || /(^|\s)ra$/.test(n);
   }
 
   let done = false;
@@ -379,24 +362,34 @@
   }
 
   function rowMatches(parts) {
-    const code = findCkInRow(parts);
+    if (parts.length <= COL_H) return false;
+    const code = ckFromColF(parts[COL_F]);
     if (!code || code !== ckKey) return false;
-    if (!rowIsIncoming(parts)) return false;
-    return rowHasAmount(parts);
+    if (isOutgoing(parts[COL_G])) return false;
+    return moneyFromColH(parts[COL_H]) >= amount - 100;
+  }
+
+  /* ========================= ĐỌC SHEET ========================= */
+  async function fetchSheetText() {
+    let lastErr = null;
+    for (let i = 0; i < SHEET_URLS.length; i++) {
+      const u = SHEET_URLS[i] + (SHEET_URLS[i].indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now();
+      try {
+        const res = await fetch(u, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.text();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("fetch failed");
   }
 
   async function checkSheet() {
     if (done || expired) return;
     try {
-      const res = await fetch(
-        SHEET_CSV + (SHEET_CSV.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now(),
-        { cache: "no-store" }
-      );
-      if (!res.ok) throw new Error("HTTP " + res.status);
-
-      const all = (await res.text()).split(/\r?\n/).filter(Boolean);
-      if (all.length) findCols(parseCsvLine(all[0]));
-      const lines = all.slice(1).slice(-LAST_ROWS);
+      const lines = (await fetchSheetText())
+        .split(/\r?\n/).filter(Boolean).slice(1).slice(-LAST_ROWS);
 
       for (let i = lines.length - 1; i >= 0; i--) {
         if (rowMatches(parseCsvLine(lines[i]))) {
@@ -407,7 +400,6 @@
 
       const remain = until - Math.floor(Date.now() / 1000);
       if (remain <= 0) return;
-
       setStatus("wait", "⏳ Chưa thấy giao dịch · còn " + fmtRemain(remain));
     } catch (e) {
       if (!expired) {
@@ -416,10 +408,12 @@
     }
   }
 
+  /* ========================= KHỞI CHẠY ========================= */
   tickCountdown();
   setInterval(tickCountdown, 1000);
   checkSheet();
   setInterval(checkSheet, POLL_MS);
+
 })();
 </script>
 </body>
