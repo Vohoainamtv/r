@@ -110,7 +110,7 @@
       <span style="color:#333;font-size:12px">QR...</span>
     </div>
 
-    <div class="status wait" id="statusBox">⏳ Quét QR và chuyển khoản...</div>
+    <div class="status wait" id="statusBox">⏳ Đang chờ thanh toán...</div>
 
     <button class="btn-copy" type="button" id="btnCopy">📋 Copy nội dung CK</button>
   </div>
@@ -369,15 +369,81 @@
     return moneyFromColH(parts[COL_H]) >= amount - 100;
   }
 
-  /* ========================= ĐỌC SHEET ========================= */
-  async function fetchSheetText() {
+  /* ========================= ĐỌC SHEET =========================
+     3 cách, cái nào chạy được thì dùng:
+     1) fetch export CSV
+     2) JSONP qua <script> (gviz) -> KHÔNG bị chặn CORS, hết "Load failed"
+     3) fetch gviz CSV
+  ================================================================ */
+  function rowsFromCsv(text) {
+    return text.split(/\r?\n/).filter(Boolean).slice(1).map(parseCsvLine);
+  }
+
+  async function fetchCsvRows(url) {
+    const u = url + (url.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now();
+    const res = await fetch(u, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return rowsFromCsv(await res.text());
+  }
+
+  function jsonpRows() {
+    return new Promise(function (resolve, reject) {
+      const cb = "__gv" + Date.now() + Math.floor(Math.random() * 1000);
+      const sc = document.createElement("script");
+      let finished = false;
+
+      function cleanup() {
+        finished = true;
+        clearTimeout(tm);
+        try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+        if (sc.parentNode) sc.parentNode.removeChild(sc);
+      }
+
+      const tm = setTimeout(function () {
+        if (finished) return;
+        cleanup();
+        reject(new Error("timeout"));
+      }, 10000);
+
+      window[cb] = function (r) {
+        if (finished) return;
+        cleanup();
+        try {
+          if (!r || r.status === "error" || !r.table) throw new Error("gviz error");
+          const rows = (r.table.rows || []).map(function (row) {
+            return (row.c || []).map(function (c) {
+              if (!c || c.v === null || c.v === undefined) return "";
+              return String(c.v);
+            });
+          });
+          resolve(rows);
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      sc.onerror = function () {
+        if (finished) return;
+        cleanup();
+        reject(new Error("script load failed"));
+      };
+
+      sc.src = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
+        "/gviz/tq?tqx=out:json;responseHandler:" + cb + "&_t=" + Date.now();
+      document.head.appendChild(sc);
+    });
+  }
+
+  async function getRows() {
     let lastErr = null;
-    for (let i = 0; i < SHEET_URLS.length; i++) {
-      const u = SHEET_URLS[i] + (SHEET_URLS[i].indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now();
+    const tries = [
+      function () { return fetchCsvRows(SHEET_URLS[0]); },
+      jsonpRows,
+      function () { return fetchCsvRows(SHEET_URLS[1]); }
+    ];
+    for (let i = 0; i < tries.length; i++) {
       try {
-        const res = await fetch(u, { cache: "no-store" });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return await res.text();
+        return await tries[i]();
       } catch (e) {
         lastErr = e;
       }
@@ -385,26 +451,27 @@
     throw lastErr || new Error("fetch failed");
   }
 
+  function showWaiting() {
+    const remain = until - Math.floor(Date.now() / 1000);
+    if (remain <= 0) return;
+    setStatus("wait", "⏳ Đang chờ thanh toán · còn " + fmtRemain(remain));
+  }
+
   async function checkSheet() {
     if (done || expired) return;
     try {
-      const lines = (await fetchSheetText())
-        .split(/\r?\n/).filter(Boolean).slice(1).slice(-LAST_ROWS);
-
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (rowMatches(parseCsvLine(lines[i]))) {
+      const rows = (await getRows()).slice(-LAST_ROWS);
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (rowMatches(rows[i])) {
           markPaidUI();
           return;
         }
       }
-
-      const remain = until - Math.floor(Date.now() / 1000);
-      if (remain <= 0) return;
-      setStatus("wait", "⏳ Chưa thấy giao dịch · còn " + fmtRemain(remain));
+      showWaiting();
     } catch (e) {
-      if (!expired) {
-        setStatus("err", "⚠️ " + (e.message || e));
-      }
+      // Không hiện lỗi cho khách: vẫn chờ thanh toán, bot tự cộng tiền
+      try { console.warn("[sheet]", e && e.message ? e.message : e); } catch (_) {}
+      showWaiting();
     }
   }
 
